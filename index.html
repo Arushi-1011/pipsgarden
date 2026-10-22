@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#dff4d7">
+<title>Pip's Little Garden</title>
+<style>
+  :root { --ink:#385447; --mint:#dff4d7; --cream:#fff9e9; --pink:#ffb7c5; --leaf:#73af72; --deep:#477c56; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; min-height:100%; }
+  body {
+    background: radial-gradient(ellipse at top, #f9f1dc 0%, #e9f5df 45%, #d8edda 100%);
+    color:var(--ink); font-family: ui-rounded, "SF Pro Rounded", "Trebuchet MS", system-ui, sans-serif;
+    display:flex; justify-content:center; padding:22px 14px 30px;
+  }
+  .page { width:min(100%, 1030px); }
+  header { display:flex; align-items:center; justify-content:space-between; gap:16px; margin:0 4px 13px; }
+  .brand { display:flex; align-items:center; gap:11px; }
+  .brand-mark { display:grid; place-items:center; width:44px; height:44px; border-radius:15px; background:#fffdf4; box-shadow:0 4px 0 #c5dfbd; font-size:25px; }
+  h1 { margin:0; font-size:clamp(1.18rem, 3vw, 1.65rem); letter-spacing:-.04em; }
+  .tagline { font-size:.84rem; color:#6c8a70; margin-top:2px; }
+  .game-shell { padding:12px; border:2px solid #fffdf3; border-radius:24px; background:rgba(255,253,243,.83); box-shadow:0 12px 0 #c2dfbd, 0 23px 45px rgba(62,99,64,.14); }
+  canvas { display:block; width:100%; height:auto; aspect-ratio:8 / 5; border-radius:15px; background:#b9e4a8; outline:none; touch-action:none; }
+  .under { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:13px 4px 1px; color:#6c8a70; font-size:.83rem; }
+  .key { display:inline-grid; place-items:center; min-width:24px; height:23px; padding:0 5px; margin:0 2px; border:1px solid #c4d8b9; border-bottom-width:3px; border-radius:6px; background:#fffef7; color:#4d6b50; font-size:.75rem; font-weight:800; }
+  .under strong { color:#4f7656; }
+  .touch-controls { display:none; grid-template-columns:repeat(3,52px); grid-template-rows:repeat(2,45px); gap:5px; justify-content:center; padding-top:12px; }
+  .touch-controls button { border:1px solid #c7dfbf; border-bottom:3px solid #b3d3a9; border-radius:12px; background:#fffdf4; color:#497450; font-size:20px; font-weight:800; touch-action:none; }
+  .touch-controls button:active { transform:translateY(2px); border-bottom-width:1px; background:#f0fae9; }
+  .touch-controls .up { grid-column:2; grid-row:1; } .touch-controls .left { grid-column:1; grid-row:2; }
+  .touch-controls .down { grid-column:2; grid-row:2; } .touch-controls .right { grid-column:3; grid-row:2; }
+  footer { text-align:center; font-size:.78rem; color:#7a9879; margin:23px 0 0; }
+  @media (max-width:600px) { body{padding:14px 9px 24px;} .game-shell{padding:7px;border-radius:18px;} .under{font-size:.74rem;align-items:flex-start;} .touch-controls{display:grid;} }
+</style>
+</head>
+<body>
+<main class="page">
+  <header>
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">🐰</div>
+      <div><h1>Pip's Little Garden</h1><div class="tagline">a tiny pocket of happy 🌼</div></div>
+    </div>
+  </header>
+  <section class="game-shell" aria-label="Pip's Little Garden game">
+    <canvas id="game" width="960" height="600" tabindex="0" aria-label="A garden game. Use arrow keys or WASD to move Pip, collect flowers, and dodge beetles."></canvas>
+    <div class="touch-controls" aria-label="Touch movement controls">
+      <button class="up" data-dir="up" aria-label="Move up">↑</button>
+      <button class="left" data-dir="left" aria-label="Move left">←</button>
+      <button class="down" data-dir="down" aria-label="Move down">↓</button>
+      <button class="right" data-dir="right" aria-label="Move right">→</button>
+    </div>
+    <div class="under">
+      <div><span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span> or <span class="key">↑</span><span class="key">←</span><span class="key">↓</span><span class="key">→</span> to move</div>
+      <div><strong>Space</strong> pause · <strong>M</strong> sound</div>
+    </div>
+  </section>
+  <footer>Made with little leaves and lots of love 🍃 &nbsp;·&nbsp; No ads, accounts, or downloads needed</footer>
+</main>
+<script>
+(() => {
+  'use strict';
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = 960, H = 600;
+
+  // Render at the screen's real pixel density so the canvas stays crisp on Retina displays.
+  // Game logic and drawing still use the same 960x600 coordinate system.
+  function resizeCanvasForDisplay() {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const pixelWidth = Math.max(1, Math.round(rect.width * dpr));
+    const pixelHeight = Math.max(1, Math.round(rect.height * dpr));
+    if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
+    }
+    ctx.setTransform(pixelWidth / W, 0, 0, pixelHeight / H, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+  }
+  resizeCanvasForDisplay();
+  window.addEventListener('resize', resizeCanvasForDisplay);
+
+  const keys = new Set();
+  let scene = 'title'; // title, playing, paused, over, win
+  let muted = false, audio = null, lastTime = 0, elapsed = 0, score = 0, lives = 3, level = 1;
+  let timeLeft = 90, invulnerable = 0, flowers = [], bugs = [], particles = [], sparkles = [];
+  let best = 0;
+  let isNewBest = false;
+  let collectedFlowerKinds = [];
+  try { best = Number(localStorage.getItem('pipsGardenBest') || 0); } catch (_) {}
+  const player = { x: W/2, y: H/2, r: 21, face: 1, bob: 0, speed: 245 };
+  const pointer = { x:0, y:0 };
+  const pressedDirs = new Set();
+  const rand = (a,b) => a + Math.random()*(b-a);
+  const clamp = (v,a,b) => Math.max(a,Math.min(b,v));
+  const dist = (a,b) => Math.hypot(a.x-b.x,a.y-b.y);
+
+  function roundedRect(x,y,w,h,r,fill,stroke=null,line=1) {
+    ctx.beginPath(); ctx.roundRect(x,y,w,h,r); if(fill){ctx.fillStyle=fill;ctx.fill();}
+    if(stroke){ctx.lineWidth=line;ctx.strokeStyle=stroke;ctx.stroke();}
+  }
+  function sound(freq=600, duration=.08, type='sine', volume=.045) {
+    if(muted) return;
+    try {
+      audio ||= new (window.AudioContext || window.webkitAudioContext)();
+      if(audio.state === 'suspended') audio.resume();
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.type=type; o.frequency.setValueAtTime(freq,audio.currentTime);
+      o.frequency.exponentialRampToValueAtTime(Math.max(80,freq*.68),audio.currentTime+duration);
+      g.gain.setValueAtTime(volume,audio.currentTime); g.gain.exponentialRampToValueAtTime(.001,audio.currentTime+duration);
+      o.connect(g);g.connect(audio.destination);o.start();o.stop(audio.currentTime+duration);
+    } catch (_) {}
+  }
+  function roundedSpawn(minPlayer=110) {
+    let p, tries=0;
+    do { p={x:rand(65,W-65),y:rand(105,H-60)}; tries++; }
+    while(tries<80 && dist(p,player)<minPlayer);
+    return p;
+  }
+  function resetGame() {
+    score=0; lives=3; level=1; timeLeft=90; elapsed=0; invulnerable=0; particles=[]; sparkles=[];
+    isNewBest=false; collectedFlowerKinds=[];
+    player.x=W/2; player.y=H/2; player.face=1; player.bob=0;
+    flowers=[]; bugs=[];
+    for(let i=0;i<13;i++) flowers.push({...roundedSpawn(85), kind: i===5 ? 'gold' : (Math.random()<.3?'tulip':'daisy'), phase:rand(0,6.28), active:true, respawn:0});
+    for(let i=0;i<2;i++) bugs.push(makeBug());
+    scene='playing'; lastTime=performance.now(); sound(620,.12,'triangle');
+  }
+  function makeBug() {
+    const p=roundedSpawn(220);
+    return {x:p.x,y:p.y,r:18,vx:rand(-1,1),vy:rand(-1,1),speed:rand(34,48),phase:rand(0,7)};
+  }
+  function burst(x,y,color,count=10) {
+    for(let i=0;i<count;i++) particles.push({x,y,vx:rand(-110,110),vy:rand(-135,50),life:rand(.35,.8),max:.8,size:rand(2,5),color});
+  }
+  function collectFlower(f) {
+    f.active=false; f.respawn=rand(.7,1.4);
+    const points=f.kind==='gold'?25:10; score+=points;
+    collectedFlowerKinds.push(f.kind);
+    if(score>best) isNewBest=true;
+    burst(f.x,f.y,f.kind==='gold'?'#ffd36d':'#ffb3c8', f.kind==='gold'?20:11);
+    sound(f.kind==='gold'?950:720,.11,'sine',.05);
+    if(score>=level*50) {
+      level++; sound(780,.18,'triangle',.05);
+      if(bugs.length<4) bugs.push(makeBug());
+      burst(player.x,player.y,'#fff2a8',24);
+    }
+    // Reaching 120 points completes the garden goal, but does not end the round.
+    // Celebrate the milestone, then let Pip keep playing until time or hearts run out.
+    if(score>=120 && score-points<120) {
+      saveBest(); sound(850,.35,'triangle',.06); burst(player.x,player.y,'#fff2a8',40);
+    }
+  }
+  function saveBest() {
+    if(score>best) isNewBest=true;
+    best=Math.max(best,score);
+    try { localStorage.setItem('pipsGardenBest',String(best)); } catch (_) {}
+  }
+  function moveInput() {
+    let x=0,y=0;
+    if(keys.has('arrowleft')||keys.has('a')||pressedDirs.has('left')) x--;
+    if(keys.has('arrowright')||keys.has('d')||pressedDirs.has('right')) x++;
+    if(keys.has('arrowup')||keys.has('w')||pressedDirs.has('up')) y--;
+    if(keys.has('arrowdown')||keys.has('s')||pressedDirs.has('down')) y++;
+    const l=Math.hypot(x,y)||1; return {x:x/l,y:y/l,moving:!!(x||y)};
+  }
+  function update(dt) {
+    elapsed+=dt;
+    if(scene!=='playing') return;
+    timeLeft=Math.max(0,timeLeft-dt); invulnerable=Math.max(0,invulnerable-dt);
+    const m=moveInput();
+    player.x=clamp(player.x+m.x*player.speed*dt,35,W-35);
+    player.y=clamp(player.y+m.y*player.speed*dt,105,H-35);
+    if(m.x) player.face=Math.sign(m.x);
+    if(m.moving) player.bob+=dt*13;
+    for(const f of flowers) {
+      f.phase+=dt*2;
+      if(!f.active) { f.respawn-=dt; if(f.respawn<=0) { const p=roundedSpawn(105); f.x=p.x;f.y=p.y;f.active=true; } }
+      else if(dist(player,f)<30) { collectFlower(f); if(scene!=='playing') break; }
+    }
+    // A winning pickup must end gameplay immediately; don't process collisions afterward.
+    if(scene==='playing') {
+    for(const b of bugs) {
+      b.phase+=dt*6;
+      const dx=player.x-b.x,dy=player.y-b.y,d=Math.hypot(dx,dy)||1;
+      const chase = d<330 ? .72 : .16;
+      b.vx+=(dx/d*b.speed*chase-b.vx)*Math.min(1,dt*1.5);
+      b.vy+=(dy/d*b.speed*chase-b.vy)*Math.min(1,dt*1.5);
+      b.x=clamp(b.x+b.vx*dt,28,W-28); b.y=clamp(b.y+b.vy*dt,105,H-28);
+      if(invulnerable<=0 && dist(player,b)<player.r+b.r-9) {
+        lives--; invulnerable=2.2; burst(player.x,player.y,'#fff0b5',18); sound(180,.22,'sawtooth',.04);
+        // Give Pip and the beetle room after a hit so the same collision doesn't feel endless.
+        b.x=clamp(b.x-(dx/d)*90,28,W-28); b.y=clamp(b.y-(dy/d)*90,105,H-28);
+        b.vx=-(dx/d)*65; b.vy=-(dy/d)*65;
+        player.x=clamp(player.x+(dx/d)*70,45,W-45);
+        player.y=clamp(player.y+(dy/d)*70,110,H-45);
+        if(lives<=0) { scene = score>=120 ? 'win' : 'over'; saveBest(); break; }
+      }
+    }
+    if(timeLeft<=0 && scene==='playing') { scene = score>=120 ? 'win' : 'over'; saveBest(); }
+    }
+    for(let i=particles.length-1;i>=0;i--) {
+      const p=particles[i]; p.life-=dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=130*dt;
+      if(p.life<=0) particles.splice(i,1);
+    }
+    if(Math.random()<.035) sparkles.push({x:rand(30,W-30),y:rand(115,H-30),life:rand(.7,1.5),max:1.5,size:rand(2,4)});
+    for(let i=sparkles.length-1;i>=0;i--){sparkles[i].life-=dt;if(sparkles[i].life<=0)sparkles.splice(i,1);}
+  }
+
+  function drawBackground() {
+    const g=ctx.createLinearGradient(0,95,0,H); g.addColorStop(0,'#c9edb7');g.addColorStop(1,'#a9dc9c');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+    // Soft, hand-drawn grassy patches
+    for(let i=0;i<24;i++) {
+      const x=(i*137+33)%W, y=115+((i*83)%465);
+      ctx.fillStyle=i%2?'rgba(255,255,225,.13)':'rgba(91,157,85,.10)';
+      ctx.beginPath();ctx.ellipse(x,y,28+((i*17)%35),10+((i*13)%13),(((i*7)%31)-15)/100,0,Math.PI*2);ctx.fill();
+    }
+    // Little winding stepping-stone path
+    ctx.strokeStyle='#e8ddb8';ctx.lineWidth=67;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(80,510);ctx.bezierCurveTo(260,420,160,315,380,330);ctx.bezierCurveTo(570,340,520,480,760,405);ctx.bezierCurveTo(820,385,875,335,920,260);ctx.stroke();
+    ctx.strokeStyle='#f5eacb';ctx.lineWidth=52;ctx.stroke();
+    for(let i=0;i<27;i++) { const x=(i*113+44)%W,y=120+((i*71)%450); if((x<190&&y>390)||(x>720&&y<435)) continue; drawTinyGrass(x,y,i%2?1:-1); }
+    // fence and bushes along the top
+    ctx.fillStyle='#7fb77a';ctx.fillRect(0,92,W,27);
+    for(let x=-10;x<W+30;x+=48) { roundedRect(x,65,34,50,8,'#f3e2bb','#d3c396',2); roundedRect(x+3,63,28,13,5,'#fff4d5'); }
+    // bushes at corners
+    for(const s of [0,1]) { const x=s?W-70:50; for(let i=0;i<5;i++){ctx.fillStyle=['#73b477','#83c381','#69aa72'][i%3];ctx.beginPath();ctx.arc(x+(i-2)*22,118-Math.abs(i-2)*7,24,0,Math.PI*2);ctx.fill();} }
+    // fixed little wildflowers
+    for(let i=0;i<20;i++) { const x=(i*179+81)%W,y=132+((i*107)%430); if(y<150|| (x<200&&y>390)) continue; drawWildflower(x,y,i); }
+    for(const s of sparkles) { ctx.globalAlpha=Math.min(1,s.life*2);ctx.fillStyle='#fffbe5';ctx.beginPath();ctx.arc(s.x,s.y,s.size,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1; }
+  }
+  function drawTinyGrass(x,y,dir) { ctx.strokeStyle='rgba(66,135,67,.45)';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,y);ctx.quadraticCurveTo(x-5*dir,y-9,x-6*dir,y-13);ctx.moveTo(x,y);ctx.quadraticCurveTo(x+5*dir,y-7,x+7*dir,y-10);ctx.stroke(); }
+  function drawWildflower(x,y,i) {
+    const colors=['#fff8e8','#ffc4d2','#fff0a8','#e5ceff'];ctx.save();ctx.translate(x,y);ctx.scale(.55,.55);
+    ctx.strokeStyle='#5b9d60';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(0,5);ctx.lineTo(1,17);ctx.stroke();
+    for(let j=0;j<5;j++){ctx.fillStyle=colors[i%colors.length];ctx.beginPath();ctx.ellipse(Math.cos(j*1.256)*6,Math.sin(j*1.256)*6,4.7,3.4,j*1.256,0,Math.PI*2);ctx.fill();}
+    ctx.fillStyle='#e9b858';ctx.beginPath();ctx.arc(0,0,3.3,0,Math.PI*2);ctx.fill();ctx.restore();
+  }
+  function drawFlower(f) {
+    if(!f.active) return; const bob=Math.sin(f.phase)*3;
+    ctx.save();ctx.translate(f.x,f.y+bob);
+    ctx.fillStyle='rgba(57,104,57,.13)';ctx.beginPath();ctx.ellipse(0,13,14,5,0,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='#4f9a60';ctx.lineWidth=4;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(0,7);ctx.quadraticCurveTo(2,14,0,18);ctx.stroke();
+    ctx.fillStyle='#73b976';ctx.beginPath();ctx.ellipse(-5,13,7,3.5,-.5,0,Math.PI*2);ctx.fill();
+    const petals=f.kind==='tulip'?5:6, col=f.kind==='gold'?'#ffd15c':f.kind==='tulip'?'#f5a0b5':'#fff8ed';
+    for(let i=0;i<petals;i++){const a=i*2*Math.PI/petals;ctx.fillStyle=col;ctx.beginPath();ctx.ellipse(Math.cos(a)*8,Math.sin(a)*8,5.8,7,a,0,Math.PI*2);ctx.fill();}
+    ctx.fillStyle=f.kind==='gold'?'#fff2a3':'#f3c75f';ctx.beginPath();ctx.arc(0,0,5.4,0,Math.PI*2);ctx.fill();
+    if(f.kind==='gold'){ctx.strokeStyle='#fff4b5';ctx.lineWidth=2;ctx.beginPath();ctx.arc(0,0,14+Math.sin(f.phase*2)*2,0,Math.PI*2);ctx.stroke();}
+    ctx.restore();
+  }
+  function drawPip(x,y,blink=false) {
+    ctx.save();ctx.translate(x,y+Math.sin(player.bob)*2);if(player.face<0)ctx.scale(-1,1);
+    ctx.fillStyle='rgba(54,103,58,.18)';ctx.beginPath();ctx.ellipse(0,19,23,8,0,0,Math.PI*2);ctx.fill();
+    if(blink){ctx.globalAlpha=.35+Math.abs(Math.sin(elapsed*24))*.65;}
+    // ears
+    ctx.save();ctx.translate(-9,-22);ctx.rotate(-.13+Math.sin(player.bob)*.035);ctx.fillStyle='#fffaf0';ctx.beginPath();ctx.ellipse(0,-13,7,19,0,0,Math.PI*2);ctx.fill();ctx.fillStyle='#f5b4bd';ctx.beginPath();ctx.ellipse(0,-14,3.6,12,0,0,Math.PI*2);ctx.fill();ctx.restore();
+    ctx.save();ctx.translate(8,-23);ctx.rotate(.16-Math.sin(player.bob)*.035);ctx.fillStyle='#fffaf0';ctx.beginPath();ctx.ellipse(0,-13,7,19,0,0,Math.PI*2);ctx.fill();ctx.fillStyle='#f5b4bd';ctx.beginPath();ctx.ellipse(0,-14,3.5,12,0,0,Math.PI*2);ctx.fill();ctx.restore();
+    // body and head
+    ctx.fillStyle='#fffaf0';ctx.beginPath();ctx.ellipse(0,5,19,19,0,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#fffdf6';ctx.beginPath();ctx.ellipse(1,-13,22,21,0,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#efb0b8';ctx.beginPath();ctx.ellipse(-13,-9,4.5,3,0,0,Math.PI*2);ctx.ellipse(14,-9,4.5,3,0,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#3c5142';ctx.beginPath();ctx.arc(-7,-15,2.3,0,Math.PI*2);ctx.arc(8,-15,2.3,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#dd8998';ctx.beginPath();ctx.moveTo(-2,-10);ctx.quadraticCurveTo(1,-13,4,-10);ctx.quadraticCurveTo(1,-6,-2,-10);ctx.fill();
+    ctx.strokeStyle='#a56f70';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(1,-8);ctx.lineTo(1,-5);ctx.quadraticCurveTo(-3,-2,-5,-5);ctx.moveTo(1,-5);ctx.quadraticCurveTo(5,-2,7,-5);ctx.stroke();
+    // little leaf scarf
+    ctx.fillStyle='#92c98b';ctx.beginPath();ctx.moveTo(-12,2);ctx.quadraticCurveTo(0,13,12,1);ctx.quadraticCurveTo(6,14,0,13);ctx.quadraticCurveTo(-8,11,-12,2);ctx.fill();
+    // tail
+    ctx.fillStyle='#fffdf6';ctx.beginPath();ctx.arc(-17,13,7,0,Math.PI*2);ctx.fill();
+    ctx.restore();
+  }
+  function drawBug(b) {
+    ctx.save();ctx.translate(b.x,b.y+Math.sin(b.phase)*2);
+    ctx.fillStyle='rgba(54,103,58,.16)';ctx.beginPath();ctx.ellipse(0,11,18,5,0,0,Math.PI*2);ctx.fill();
+    // wiggly antennae
+    ctx.strokeStyle='#4e5540';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-5,-10);ctx.quadraticCurveTo(-10,-20,-15,-17);ctx.moveTo(5,-10);ctx.quadraticCurveTo(10,-20,15,-17);ctx.stroke();
+    ctx.fillStyle='#4f7952';ctx.beginPath();ctx.ellipse(0,0,17,14,0,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#80ad61';ctx.beginPath();ctx.ellipse(-3,-4,11,8,-.2,Math.PI,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#f8fff0';ctx.beginPath();ctx.arc(-6,-3,3.6,0,Math.PI*2);ctx.arc(6,-3,3.6,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#344a3d';ctx.beginPath();ctx.arc(-5,-2,1.7,0,Math.PI*2);ctx.arc(7,-2,1.7,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='#385642';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(0,3,4,0.2,Math.PI-.2);ctx.stroke();
+    ctx.restore();
+  }
+  function drawParticles() { for(const p of particles){ctx.globalAlpha=clamp(p.life/p.max,0,1);ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(p.x,p.y,p.size,0,Math.PI*2);ctx.fill();}ctx.globalAlpha=1; }
+  function formatTime(seconds) {
+    const total = Math.ceil(Math.max(0, seconds));
+    const minutes = Math.floor(total / 60);
+    const secs = total % 60;
+    return String(minutes) + ':' + String(secs).padStart(2, '0');
+  }
+  function drawHUD() {
+    ctx.fillStyle='#fdf9e9';ctx.fillRect(0,0,W,95);
+    ctx.fillStyle='#b9dba7';ctx.fillRect(0,91,W,5);
+    // score card
+    roundedRect(20,17,192,60,17,'#fffef7','#dce8c9',2);
+    ctx.fillStyle='#75936d';ctx.font='700 13px ui-rounded,system-ui,sans-serif';ctx.fillText('FLOWERS FOUND',37,39);
+    ctx.fillStyle='#365d43';ctx.font='800 28px ui-rounded,system-ui,sans-serif';ctx.fillText(String(score).padStart(3,'0'),35,66);
+    ctx.fillStyle='#7e9b71';ctx.font='700 13px ui-rounded,system-ui,sans-serif';ctx.fillText('BEST '+String(best).padStart(3,'0'),127,65);
+    // time card
+    roundedRect(390,17,180,60,17,'#fffef7','#dce8c9',2);
+    ctx.fillStyle='#78926d';ctx.font='700 12px ui-rounded,system-ui,sans-serif';ctx.textAlign='center';ctx.fillText('GARDEN TIME',480,38);
+    ctx.fillStyle=timeLeft<15?'#d16f76':'#365d43';ctx.font='800 27px ui-rounded,system-ui,sans-serif';ctx.fillText(formatTime(timeLeft),480,66);
+    ctx.textAlign='left';
+    // lives and level
+    roundedRect(746,17,194,60,17,'#fffef7','#dce8c9',2);
+    ctx.fillStyle='#78926d';ctx.font='700 12px ui-rounded,system-ui,sans-serif';ctx.fillText('PIP’S HEARTS',761,38);
+    for(let i=0;i<3;i++) drawHeart(777+i*29,57,i<lives);
+    roundedRect(861,27,66,28,10,'#e8f4df');ctx.fillStyle='#507c55';ctx.font='800 12px ui-rounded,system-ui,sans-serif';ctx.textAlign='center';ctx.fillText('LV '+level,894,45);ctx.textAlign='left';
+  }
+  function drawHeart(x,y,full) {
+    ctx.save();ctx.translate(x,y);ctx.scale(.72,.72);ctx.fillStyle=full?'#f3a0ae':'#e8e2d2';ctx.beginPath();ctx.moveTo(0,8);ctx.bezierCurveTo(-22,-5,-12,-19,0,-9);ctx.bezierCurveTo(12,-19,22,-5,0,8);ctx.fill();ctx.restore();
+  }
+  function drawButton(x,y,w,h,label,sub='') {
+    roundedRect(x,y+5,w,h,18,'#b4d6a7');roundedRect(x,y,w,h,18,'#fffdf2','#d0e4c4',2);
+    ctx.fillStyle='#426b4b';ctx.font='800 20px ui-rounded,system-ui,sans-serif';ctx.textAlign='center';ctx.fillText(label,x+w/2,y+31);
+    if(sub){ctx.fillStyle='#86a17b';ctx.font='600 12px ui-rounded,system-ui,sans-serif';ctx.fillText(sub,x+w/2,y+50);}ctx.textAlign='left';
+  }
+  function panel(title, lines, buttonLabel, buttonSub='') {
+    ctx.fillStyle='rgba(47,81,52,.25)';ctx.fillRect(0,0,W,H);
+    roundedRect(220,115,520,395,30,'#e2f1d8');roundedRect(220,105,520,395,30,'#fffbed','#fffef5',3);
+    ctx.textAlign='center';ctx.fillStyle='#557f56';ctx.font='800 15px ui-rounded,system-ui,sans-serif';ctx.fillText('✿  A LITTLE GARDEN ADVENTURE  ✿',480,145);
+    ctx.fillStyle='#365d43';ctx.font='800 37px ui-rounded,system-ui,sans-serif';ctx.fillText(title,480,197);
+    let y=238;ctx.fillStyle='#6f8d6c';ctx.font='500 16px ui-rounded,system-ui,sans-serif';
+    for(const line of lines){ctx.fillText(line,480,y);y+=25;}
+    drawButton(352,387,256,64,buttonLabel,buttonSub);
+    ctx.fillStyle='#90a789';ctx.font='600 12px ui-rounded,system-ui,sans-serif';ctx.fillText('little steps, big happy ✨',480,477);
+    ctx.textAlign='left';
+  }
+  // Build the end-screen bouquet from the flower types Pip actually collected this round.
+  function drawBouquetBloom(x,y,kind) {
+    ctx.save();ctx.translate(x,y);
+    const petalColor=kind==='gold'?'#ffd15c':kind==='tulip'?'#f5a0b5':'#fff8ed';
+    const petalCount=kind==='tulip'?5:6;
+    for(let i=0;i<petalCount;i++) {
+      const a=i*Math.PI*2/petalCount;
+      ctx.fillStyle=petalColor;ctx.beginPath();
+      ctx.ellipse(Math.cos(a)*8,Math.sin(a)*8,5.8,7,a,0,Math.PI*2);ctx.fill();
+    }
+    ctx.fillStyle=kind==='gold'?'#fff2a3':'#f3c75f';
+    ctx.beginPath();ctx.arc(0,0,5.2,0,Math.PI*2);ctx.fill();
+    if(kind==='gold') { ctx.strokeStyle='#fff4b5';ctx.lineWidth=2;ctx.beginPath();ctx.arc(0,0,15,0,Math.PI*2);ctx.stroke(); }
+    ctx.restore();
+  }
+  function drawBouquet() {
+    const all=collectedFlowerKinds;
+    const count=Math.min(9,all.length);
+    const layouts={
+      1:[{x:0,y:-30}],
+      2:[{x:-24,y:-24},{x:24,y:-24}],
+      3:[{x:-34,y:-12},{x:0,y:-35},{x:34,y:-12}],
+      4:[{x:-36,y:-20},{x:-13,y:-34},{x:13,y:-34},{x:36,y:-20}],
+      5:[{x:-42,y:-12},{x:-23,y:-28},{x:0,y:-37},{x:23,y:-28},{x:42,y:-12}],
+      6:[{x:-43,y:-12},{x:-27,y:-28},{x:-10,y:-36},{x:10,y:-36},{x:27,y:-28},{x:43,y:-12}],
+      7:[{x:-45,y:-12},{x:-30,y:-27},{x:-15,y:-35},{x:0,y:-25},{x:15,y:-35},{x:30,y:-27},{x:45,y:-12}],
+      8:[{x:-47,y:-11},{x:-34,y:-24},{x:-21,y:-34},{x:-7,y:-28},{x:7,y:-28},{x:21,y:-34},{x:34,y:-24},{x:47,y:-11}],
+      9:[{x:-49,y:-10},{x:-37,y:-24},{x:-25,y:-33},{x:-12,y:-27},{x:0,y:-37},{x:12,y:-27},{x:25,y:-33},{x:37,y:-24},{x:49,y:-10}]
+    };
+    const positions=layouts[count]||[];
+    const blooms=positions.map((pos,i)=>{
+      const sampleIndex=count<=1?Math.max(0,all.length-1):Math.round(i*(all.length-1)/(count-1));
+      return {x:480+pos.x,y:265+pos.y,kind:all[sampleIndex]};
+    });
+
+    // Stems and leaves converge into one hand-tied bundle.
+    ctx.save();ctx.lineCap='round';
+    for(let i=0;i<blooms.length;i++) {
+      const b=blooms[i];
+      ctx.strokeStyle=i%2?'#639b61':'#4f9258';ctx.lineWidth=3.5;
+      ctx.beginPath();ctx.moveTo(b.x,b.y+7);ctx.quadraticCurveTo((b.x+480)/2,b.y+35,480,326);ctx.stroke();
+      if(i%2===0) {
+        const lx=b.x*.28+480*.72, ly=b.y*.28+326*.72;
+        ctx.fillStyle='#83bd7d';ctx.beginPath();ctx.ellipse(lx-7,ly-2,7,3.2,-.5,0,Math.PI*2);ctx.fill();
+      }
+    }
+    // Kraft-paper wrapper, drawn over the lower ends of the stems.
+    ctx.beginPath();ctx.moveTo(438,294);ctx.quadraticCurveTo(480,304,522,294);ctx.lineTo(499,349);ctx.quadraticCurveTo(480,358,461,349);ctx.closePath();
+    ctx.fillStyle='#fff0cf';ctx.fill();ctx.strokeStyle='#e7d1a8';ctx.lineWidth=2;ctx.stroke();
+    ctx.beginPath();ctx.moveTo(450,300);ctx.lineTo(480,345);ctx.lineTo(510,300);ctx.strokeStyle='#f1dcb7';ctx.lineWidth=2;ctx.stroke();
+    // A tiny pink ribbon ties the bouquet together.
+    ctx.fillStyle='#ef9eb0';ctx.beginPath();ctx.ellipse(471,327,9,5,-.35,0,Math.PI*2);ctx.ellipse(489,327,9,5,.35,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#d98196';ctx.beginPath();ctx.arc(480,327,4,0,Math.PI*2);ctx.fill();
+    ctx.restore();
+    for(const b of blooms) drawBouquetBloom(b.x,b.y,b.kind);
+  }
+  function drawFinishPanel() {
+    ctx.fillStyle='rgba(47,81,52,.25)';ctx.fillRect(0,0,W,H);
+    roundedRect(220,115,520,395,30,'#e2f1d8');roundedRect(220,105,520,395,30,'#fffbed','#fffef5',3);
+    ctx.textAlign='center';ctx.fillStyle='#557f56';ctx.font='800 15px ui-rounded,system-ui,sans-serif';ctx.fillText('✿  A LITTLE GARDEN ADVENTURE  ✿',480,145);
+    const title=isNewBest?'New best score!':(score>0 && score===best?'Best score!':(scene==='win'?'Garden superstar!':'Oh, buttercups!'));
+    ctx.fillStyle='#365d43';ctx.font='800 37px ui-rounded,system-ui,sans-serif';ctx.fillText(title,480,197);
+    drawBouquet();
+    ctx.fillStyle='#6f8d6c';ctx.font='600 14px ui-rounded,system-ui,sans-serif';
+    ctx.fillText(collectedFlowerKinds.length ? 'A bouquet of your garden finds!' : 'Your first bouquet is waiting!',480,364);
+    drawButton(352,387,256,64,scene==='win'?'Play again':'Try again',scene==='win'?'ready for another little adventure':'one more little adventure');
+    ctx.fillStyle='#90a789';ctx.font='600 12px ui-rounded,system-ui,sans-serif';ctx.fillText('little steps, big happy ✨',480,477);
+    ctx.textAlign='left';
+  }
+  function drawTitle() {
+    drawBackground(); flowers.slice(0,7).forEach(drawFlower);drawPip(480,335,false);bugs.slice(0,2).forEach(drawBug);
+    ctx.fillStyle='rgba(255,251,235,.60)';ctx.fillRect(0,0,W,H);
+    roundedRect(200,65,560,470,34,'#e2f1d8');roundedRect(200,55,560,470,34,'#fffbed','#fffef5',3);
+    // logo garden
+    ctx.fillStyle='#f6e9bd';ctx.beginPath();ctx.arc(480,153,53,0,Math.PI*2);ctx.fill();
+    drawPip(480,166,false);
+    ctx.textAlign='center';ctx.fillStyle='#3e6949';ctx.font='900 43px ui-rounded,system-ui,sans-serif';ctx.fillText("Pip's Little Garden",480,241);
+    ctx.fillStyle='#7b9874';ctx.font='500 17px ui-rounded,system-ui,sans-serif';ctx.fillText('A tiny bunny. A very big garden.',480,273);
+    drawButton(350,309,260,64,'Start gardening','collect flowers · dodge bugs');
+    ctx.textAlign='center';
+    ctx.fillStyle='#688665';ctx.font='700 14px ui-rounded,system-ui,sans-serif';ctx.fillText('🌼  10 points per flower  ·  ✨ golden blooms = 25',480,406);
+    ctx.fillStyle='#91a88b';ctx.font='500 13px ui-rounded,system-ui,sans-serif';ctx.fillText('WASD / arrows to move  ·  Space to pause  ·  M for sound',480,439);
+    ctx.fillStyle='#6f8c6a';ctx.font='700 13px ui-rounded,system-ui,sans-serif';ctx.fillText('Best garden score: '+best,480,481);
+    ctx.textAlign='left';
+  }
+  function drawOverlay() {
+    if(scene==='paused') panel('Taking a breather?', ['The flowers will wait for you.','Catch your breath, little gardener.'],'Keep playing','press Space to resume');
+    if(scene==='over'||scene==='win') drawFinishPanel();
+  }
+  function render() {
+    ctx.clearRect(0,0,W,H);
+    if(scene==='title') { drawTitle(); }
+    else {
+      drawBackground(); flowers.forEach(drawFlower); bugs.forEach(drawBug);
+      drawPip(player.x,player.y,invulnerable>0); drawParticles(); drawHUD();
+      if(scene==='paused'||scene==='over'||scene==='win') drawOverlay();
+    }
+    // sound marker
+    ctx.textAlign='right';ctx.font='700 12px ui-rounded,system-ui,sans-serif';ctx.fillStyle='#759570';ctx.fillText(muted?'♪ OFF':'♪ ON',W-19,H-13);ctx.textAlign='left';
+  }
+  function frame(t) {
+    const dt=Math.min(.032,Math.max(0,(t-lastTime)/1000||0));lastTime=t;update(dt);render();requestAnimationFrame(frame);
+  }
+  function canvasPoint(e) { const r=canvas.getBoundingClientRect();return {x:(e.clientX-r.left)*W/r.width,y:(e.clientY-r.top)*H/r.height}; }
+  canvas.addEventListener('pointerdown',e=>{
+    const p=canvasPoint(e);canvas.focus();
+    if(scene==='title' && p.x>320&&p.x<640&&p.y>300&&p.y<390) { resetGame();return; }
+    if(scene==='over'||scene==='win') { if(p.x>320&&p.x<640&&p.y>375&&p.y<465) resetGame(); return; }
+    if(scene==='paused') { if(p.x>320&&p.x<640&&p.y>375&&p.y<465) {scene='playing';lastTime=performance.now();} return; }
+    if(p.x>W-85&&p.y>H-45) muted=!muted;
+  });
+  window.addEventListener('keydown',e=>{
+    const k=e.key.toLowerCase();
+    if(['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k)) e.preventDefault();
+    keys.add(k);
+    if((k===' '||k==='escape') && scene==='playing') {scene='paused';sound(390,.08);}
+    else if((k===' '||k==='escape') && scene==='paused') {scene='playing';lastTime=performance.now();sound(520,.08);}
+    else if((k==='enter'||k===' ') && scene==='title') resetGame();
+    else if((k==='enter'||k===' ') && (scene==='over'||scene==='win')) resetGame();
+    else if(k==='m') muted=!muted;
+  });
+  window.addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));
+  window.addEventListener('blur',()=>keys.clear());
+  document.querySelectorAll('[data-dir]').forEach(btn=>{
+    const dir=btn.dataset.dir;
+    const down=e=>{e.preventDefault();pressedDirs.add(dir);};
+    const up=e=>{e.preventDefault();pressedDirs.delete(dir);};
+    btn.addEventListener('pointerdown',down);btn.addEventListener('pointerup',up);btn.addEventListener('pointerleave',up);btn.addEventListener('pointercancel',up);
+  });
+  // Seed menu animation with a few gentle garden friends.
+  for(let i=0;i<3;i++)bugs.push({x:rand(230,730),y:rand(270,420),r:18,vx:0,vy:0,speed:0,phase:rand(0,6)});
+  for(let i=0;i<9;i++)flowers.push({x:rand(100,860),y:rand(200,520),kind:i===4?'gold':(i%3===0?'tulip':'daisy'),phase:rand(0,6),active:true,respawn:0});
+  lastTime=performance.now();requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
